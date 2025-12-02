@@ -161,8 +161,25 @@ class WorkspaceWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.project: Project | None = None
-        self.current_process: QProcess | None = None
+        # Track running processes PER PROJECT (keyed by project path string)
+        self.running_processes: dict[str, QProcess] = {}
+        # Track output per project so switching back shows previous output
+        self.project_outputs: dict[str, str] = {}
         self.setup_ui()
+    
+    def _get_project_key(self) -> str | None:
+        """Get the current project's unique key (path as string)."""
+        if not self.project:
+            return None
+        return str(self.project.path)
+    
+    def _is_current_project_running(self) -> bool:
+        """Check if the currently displayed project has a running process."""
+        key = self._get_project_key()
+        if not key:
+            return False
+        process = self.running_processes.get(key)
+        return process is not None and process.state() == QProcess.ProcessState.Running
     
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -304,6 +321,7 @@ class WorkspaceWidget(QWidget):
         
         # === GITHUB SECTION ===
         github_section = QWidget()
+        github_section.setMinimumWidth(450)  # Prevent layout shift when Connect button hides
         github_layout = QHBoxLayout(github_section)
         github_layout.setContentsMargins(0, 0, 0, 0)
         github_layout.setSpacing(12)
@@ -401,12 +419,28 @@ class WorkspaceWidget(QWidget):
     
     def set_project(self, project: Project):
         """Load a project into the workspace."""
+        # Save current project's output before switching
+        old_key = self._get_project_key()
+        if old_key:
+            self.project_outputs[old_key] = self.output_panel.toPlainText()
+        
         self.project = project
-        self.clear_output()
+        
+        # Restore this project's output (or clear if none)
+        new_key = self._get_project_key()
+        if new_key and new_key in self.project_outputs:
+            self.output_panel.setPlainText(self.project_outputs[new_key])
+        else:
+            self.output_panel.clear()
+        
         self.refresh_ui()
     
-    def refresh_ui(self):
-        """Update all UI elements to reflect current project state."""
+    def refresh_ui(self, fetch_github: bool = False):
+        """Update all UI elements to reflect current project state.
+        
+        Args:
+            fetch_github: If True, fetch remote status (slow). If False, show basic status.
+        """
         if not self.project:
             return
         
@@ -422,11 +456,19 @@ class WorkspaceWidget(QWidget):
             self.status_label.setText("✓ All saved")
             self.status_label.setStyleSheet("color: #4a9eff;")
         
+        # Update Launch button based on THIS project's running state
+        if self._is_current_project_running():
+            self.btn_launch.setEnabled(False)
+            self.btn_launch.setText("⏳ Running...")
+        else:
+            self.btn_launch.setEnabled(True)
+            self.btn_launch.setText("▶  Launch")
+        
         # Check for branch issues
         self.refresh_branch_warning()
         
-        # Update GitHub status
-        self.refresh_github_status()
+        # Update GitHub status (only fetch if requested)
+        self.refresh_github_status(fetch_remote=fetch_github)
         
         # Check for unmerged Claude branches
         self.refresh_claude_branches()
@@ -580,8 +622,8 @@ class WorkspaceWidget(QWidget):
         self.btn_refresh.setEnabled(False)
         self.btn_refresh.setText("...")
         
-        # Force a refresh
-        self.refresh_ui()
+        # Force a refresh including GitHub fetch
+        self.refresh_ui(fetch_github=True)
         
         # Restore button
         self.btn_refresh.setText("↻")
@@ -652,7 +694,11 @@ class WorkspaceWidget(QWidget):
         if not self.project:
             return
         
-        # Clear previous output
+        project_key = self._get_project_key()
+        if not project_key:
+            return
+        
+        # Clear previous output for this project
         self.output_panel.clear()
         self.append_output(f"▶ Running {self.project.main_file}...\n\n")
         
@@ -661,44 +707,80 @@ class WorkspaceWidget(QWidget):
         self.btn_launch.setText("⏳ Running...")
         
         # Use QProcess for better Qt integration
-        self.current_process = QProcess(self)
-        self.current_process.setWorkingDirectory(str(self.project.path))
+        process = QProcess(self)
+        process.setWorkingDirectory(str(self.project.path))
+        
+        # Store which project this process belongs to
+        process.setProperty("project_key", project_key)
         
         # Connect signals
-        self.current_process.readyReadStandardOutput.connect(self.on_stdout_ready)
-        self.current_process.readyReadStandardError.connect(self.on_stderr_ready)
-        self.current_process.finished.connect(self.on_process_finished)
+        process.readyReadStandardOutput.connect(lambda: self.on_stdout_ready(process))
+        process.readyReadStandardError.connect(lambda: self.on_stderr_ready(process))
+        process.finished.connect(lambda exit_code, exit_status: self.on_process_finished(process, exit_code, exit_status))
+        
+        # Track this process for this project
+        self.running_processes[project_key] = process
         
         # Start the process
-        self.current_process.start("python3", [self.project.main_file])
+        process.start("python3", [self.project.main_file])
     
-    def on_stdout_ready(self):
+    def on_stdout_ready(self, process: QProcess):
         """Handle stdout data from the running process."""
-        if self.current_process:
-            data = self.current_process.readAllStandardOutput()
-            text = bytes(data).decode("utf-8", errors="replace")
+        project_key = process.property("project_key")
+        data = process.readAllStandardOutput()
+        text = bytes(data).decode("utf-8", errors="replace")
+        
+        # Only append to output panel if this is the currently viewed project
+        if project_key == self._get_project_key():
             self.append_output(text)
-    
-    def on_stderr_ready(self):
-        """Handle stderr data from the running process."""
-        if self.current_process:
-            data = self.current_process.readAllStandardError()
-            text = bytes(data).decode("utf-8", errors="replace")
-            self.append_output(text, is_error=True)
-    
-    def on_process_finished(self, exit_code, exit_status):
-        """Handle process completion."""
-        # Re-enable launch button
-        self.btn_launch.setEnabled(True)
-        self.btn_launch.setText("▶  Launch")
-        
-        # Show completion message
-        if exit_code == 0:
-            self.append_output(f"\n✓ Finished successfully")
         else:
-            self.append_output(f"\n✗ Exited with code {exit_code}", is_error=True)
+            # Store in project outputs for later display
+            if project_key in self.project_outputs:
+                self.project_outputs[project_key] += text
+            else:
+                self.project_outputs[project_key] = text
+    
+    def on_stderr_ready(self, process: QProcess):
+        """Handle stderr data from the running process."""
+        project_key = process.property("project_key")
+        data = process.readAllStandardError()
+        text = bytes(data).decode("utf-8", errors="replace")
         
-        self.current_process = None
+        # Only append to output panel if this is the currently viewed project
+        if project_key == self._get_project_key():
+            self.append_output(text, is_error=True)
+        else:
+            # Store in project outputs for later display
+            if project_key in self.project_outputs:
+                self.project_outputs[project_key] += text
+            else:
+                self.project_outputs[project_key] = text
+    
+    def on_process_finished(self, process: QProcess, exit_code: int, exit_status):
+        """Handle process completion."""
+        project_key = process.property("project_key")
+        
+        # Build completion message
+        if exit_code == 0:
+            completion_msg = f"\n✓ Finished successfully"
+        else:
+            completion_msg = f"\n✗ Exited with code {exit_code}"
+        
+        # If this is the currently viewed project, update UI directly
+        if project_key == self._get_project_key():
+            self.btn_launch.setEnabled(True)
+            self.btn_launch.setText("▶  Launch")
+            self.append_output(completion_msg)
+        else:
+            # Store completion message in project outputs
+            if project_key in self.project_outputs:
+                self.project_outputs[project_key] += completion_msg
+            else:
+                self.project_outputs[project_key] = completion_msg
+        
+        # Remove from running processes
+        if project_key in self.running_processes:
+            del self.running_processes[project_key]
     
     def append_output(self, text: str, is_error: bool = False):
         """Append text to the output panel."""
@@ -714,6 +796,10 @@ class WorkspaceWidget(QWidget):
     def clear_output(self):
         """Clear the output panel."""
         self.output_panel.clear()
+        # Also clear stored output for current project
+        key = self._get_project_key()
+        if key and key in self.project_outputs:
+            del self.project_outputs[key]
     
     def on_save_version(self):
         """Save the current state as a new version."""
@@ -754,8 +840,13 @@ class WorkspaceWidget(QWidget):
             self.refresh_ui()
             self.project_changed.emit()
     
-    def refresh_github_status(self):
-        """Update the GitHub sync status display."""
+    def refresh_github_status(self, fetch_remote: bool = False):
+        """Update the GitHub sync status display.
+        
+        Args:
+            fetch_remote: If True, fetch from remote to get accurate sync status.
+                         If False, just show basic connected/not connected status.
+        """
         if not self.project:
             self.sync_status.setText("No project")
             self.btn_push.setEnabled(False)
@@ -775,6 +866,13 @@ class WorkspaceWidget(QWidget):
         self.btn_connect.hide()
         self.btn_push.setEnabled(True)
         self.btn_pull.setEnabled(True)
+        
+        # Only fetch detailed status if requested (e.g., from Refresh button)
+        # This avoids the slow network call on every project switch
+        if not fetch_remote:
+            self.sync_status.setText("● Connected")
+            self.sync_status.setStyleSheet("color: #888888;")
+            return
         
         # Get sync status (this does a fetch, might be slow)
         status = self.project.get_sync_status()

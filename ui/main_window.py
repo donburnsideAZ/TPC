@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        self.setWindowTitle("PTC - Pack Track Click")
+        self.setWindowTitle("TPC - Track Pack Click")
         self.setup_window_size()
         
         # Track current project
