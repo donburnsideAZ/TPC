@@ -246,6 +246,33 @@ class WorkspaceWidget(QWidget):
         self.branch_warning.hide()  # Hidden by default
         layout.addWidget(self.branch_warning)
         
+        # === GIT MISSING WARNING (hidden by default) ===
+        self.git_missing_warning = QWidget()
+        self.git_missing_warning.setObjectName("gitMissingWarning")
+        git_warning_layout = QHBoxLayout(self.git_missing_warning)
+        git_warning_layout.setContentsMargins(16, 12, 16, 12)
+        git_warning_layout.setSpacing(12)
+        
+        git_warning_icon = QLabel("⚠️")
+        git_warning_icon.setStyleSheet("font-size: 16px;")
+        git_warning_layout.addWidget(git_warning_icon)
+        
+        git_warning_text = QLabel(
+            "Version tracking was lost (the .git folder is missing). "
+            "Click Restore to start tracking again from your current files."
+        )
+        git_warning_text.setObjectName("gitMissingText")
+        git_warning_text.setWordWrap(True)
+        git_warning_layout.addWidget(git_warning_text, 1)
+        
+        self.btn_restore_git = QPushButton("Restore Tracking")
+        self.btn_restore_git.setObjectName("btnRestoreGit")
+        self.btn_restore_git.clicked.connect(self.on_restore_git)
+        git_warning_layout.addWidget(self.btn_restore_git)
+        
+        self.git_missing_warning.hide()  # Hidden by default
+        layout.addWidget(self.git_missing_warning)
+        
         # === CLAUDE BRANCHES WARNING (hidden by default) ===
         self.claude_branches_warning = QWidget()
         self.claude_branches_warning.setObjectName("claudeBranchesWarning")
@@ -463,6 +490,9 @@ class WorkspaceWidget(QWidget):
             self.btn_launch.setEnabled(True)
             self.btn_launch.setText("▶  Launch")
         
+        # Check for missing git (highest priority warning)
+        self.refresh_git_warning()
+        
         # Check for branch issues
         self.refresh_branch_warning()
         
@@ -537,6 +567,41 @@ class WorkspaceWidget(QWidget):
             self.project_changed.emit()
         else:
             QMessageBox.warning(self, "Restore Failed", result_message)
+    
+    def refresh_git_warning(self):
+        """Check if git is missing and show warning if so."""
+        if not self.project:
+            self.git_missing_warning.hide()
+            return
+        
+        if self.project.has_git:
+            self.git_missing_warning.hide()
+        else:
+            self.git_missing_warning.show()
+    
+    def on_restore_git(self):
+        """Handle restoring git tracking for a project."""
+        if not self.project:
+            return
+        
+        from PyQt6.QtWidgets import QMessageBox
+        
+        # Disable button during operation
+        self.btn_restore_git.setEnabled(False)
+        self.btn_restore_git.setText("Restoring...")
+        
+        success, message = self.project.reinitialize_git()
+        
+        # Re-enable button
+        self.btn_restore_git.setText("Restore Tracking")
+        self.btn_restore_git.setEnabled(True)
+        
+        if success:
+            QMessageBox.information(self, "Tracking Restored!", message)
+            self.refresh_ui()
+            self.project_changed.emit()
+        else:
+            QMessageBox.warning(self, "Restore Failed", message)
     
     def refresh_branch_warning(self):
         """Check if we're on a non-main branch and show warning if so."""
@@ -1344,6 +1409,35 @@ class WorkspaceWidget(QWidget):
             
             #btnSwitchBranch:pressed {
                 background-color: #d39e00;
+            }
+            
+            #gitMissingWarning {
+                background-color: #fdecea;
+                border: 1px solid #e74c3c;
+                border-radius: 8px;
+            }
+            
+            #gitMissingText {
+                color: #922820;
+                font-size: 13px;
+            }
+            
+            #btnRestoreGit {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            
+            #btnRestoreGit:hover {
+                background-color: #c0392b;
+            }
+            
+            #btnRestoreGit:pressed {
+                background-color: #a93226;
             }
             
             #claudeBranchesWarning {

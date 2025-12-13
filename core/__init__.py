@@ -1,6 +1,6 @@
 """TPC core functionality."""
 
-__version__ = "0.96"
+__version__ = "0.97"
 
 from .project import Project, find_ptc_projects, DEFAULT_PROJECTS_ROOT
 from .deps import (

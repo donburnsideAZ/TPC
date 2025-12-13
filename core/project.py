@@ -127,6 +127,11 @@ class Project:
         return self.path / self.main_file
     
     @property
+    def has_git(self) -> bool:
+        """Check if this project has git initialized."""
+        return (self.path / ".git").exists()
+    
+    @property
     def has_unsaved_changes(self) -> bool:
         """Check if there are uncommitted changes."""
         if not (self.path / ".git").exists():
@@ -141,6 +146,34 @@ class Project:
             return bool(result.stdout.strip())
         except Exception:
             return False
+    
+    def reinitialize_git(self) -> tuple[bool, str]:
+        """
+        Reinitialize git tracking for this project.
+        
+        Use this when .git folder was deleted but .ptc config still exists.
+        Creates a fresh git repo and saves the first version.
+        
+        Returns (success, message).
+        """
+        if self.has_git:
+            return False, "Git is already initialized."
+        
+        try:
+            # Initialize git
+            self._init_git()
+            
+            # Check if it worked
+            if not self.has_git:
+                return False, "Couldn't initialize git. Check folder permissions."
+            
+            # Save first version
+            self.save_version("Restored version tracking")
+            
+            return True, "Version tracking restored! Your current files are now saved as the first version."
+            
+        except Exception as e:
+            return False, f"Something went wrong: {e}"
     
     def save_config(self) -> None:
         """Save project configuration to .ptc/project.json."""

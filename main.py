@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 TPC - Track Pack Click
-Keep track of your projects. Keep them safe with git, package them, run them. It's nice. 
+The packaging tool for people who just want to ship.
+
+"I just want to hand someone an installer and say 'here, this works.'"
 """
 
 # Version is also defined in core/__init__.py for imports
-__version__ = "0.96"
+__version__ = "0.97"
 
 import sys
 import subprocess
