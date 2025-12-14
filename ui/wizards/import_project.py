@@ -316,9 +316,10 @@ class ImportProjectWizard(QDialog):
                 background-color: #ffffff;
                 border: 1px solid #cccccc;
                 border-radius: 6px;
-                padding: 12px;
+                padding: 10px 12px;
                 color: #333333;
                 font-size: 15px;
+                min-height: 20px;
             }
             
             #fieldInput:focus {
@@ -332,6 +333,7 @@ class ImportProjectWizard(QDialog):
                 padding: 10px 12px;
                 color: #333333;
                 font-size: 14px;
+                min-height: 20px;
             }
             
             #fieldCombo:focus {

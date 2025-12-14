@@ -7,7 +7,7 @@ The packaging tool for people who just want to ship.
 """
 
 # Version is also defined in core/__init__.py for imports
-__version__ = "0.86"
+__version__ = "0.97"
 
 import sys
 import subprocess
@@ -249,10 +249,35 @@ def main():
     # Enable high DPI scaling
     app = QApplication(sys.argv)
     
+    # Force light mode regardless of system settings
+    # TPC is designed for light mode only
+    app.setStyle("Fusion")  # Use Fusion style as base (consistent cross-platform)
+    
+    from PyQt6.QtGui import QPalette, QColor
+    palette = QPalette()
+    
+    # Light mode colors
+    palette.setColor(QPalette.ColorRole.Window, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Base, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(245, 245, 245))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Text, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
+    palette.setColor(QPalette.ColorRole.Link, QColor(74, 158, 255))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(74, 158, 255))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(160, 160, 160))
+    
+    app.setPalette(palette)
+    
     # Set application metadata
-    app.setApplicationName("PTC")
-    app.setApplicationDisplayName("PTC - Pack Track Click")
-    app.setOrganizationName("PTC")
+    app.setApplicationName("TPC")
+    app.setApplicationDisplayName("TPC - Track Pack Click")
+    app.setOrganizationName("TPC")
     
     # Set a clean, friendly default font
     font = QFont("SF Pro Display", 13)

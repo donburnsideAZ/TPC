@@ -64,6 +64,38 @@ def unregister_project_path(path: Path) -> None:
             json.dump({"projects": [str(p) for p in paths]}, f, indent=2)
 
 
+def remove_from_tpc(path: Path) -> tuple[bool, str]:
+    """
+    Remove a project from TPC management without deleting any user files.
+    
+    This:
+    - Deletes the .ptc/ folder (TPC's config)
+    - Removes from known_projects.json registry
+    - Does NOT touch .git/, source files, or anything else
+    
+    Returns (success, message).
+    """
+    import shutil
+    
+    ptc_dir = path / ".ptc"
+    
+    try:
+        # Remove from registry first (even if .ptc doesn't exist)
+        unregister_project_path(path)
+        
+        # Remove .ptc folder if it exists
+        if ptc_dir.exists():
+            shutil.rmtree(ptc_dir)
+            return True, f"Removed '{path.name}' from TPC. Your files are still there."
+        else:
+            return True, f"Removed '{path.name}' from TPC registry."
+            
+    except PermissionError:
+        return False, f"Permission denied. Can't remove .ptc folder from {path}"
+    except Exception as e:
+        return False, f"Something went wrong: {e}"
+
+
 @dataclass
 class Project:
     """Represents a PTC-managed project."""
@@ -95,6 +127,11 @@ class Project:
         return self.path / self.main_file
     
     @property
+    def has_git(self) -> bool:
+        """Check if this project has git initialized."""
+        return (self.path / ".git").exists()
+    
+    @property
     def has_unsaved_changes(self) -> bool:
         """Check if there are uncommitted changes."""
         if not (self.path / ".git").exists():
@@ -109,6 +146,34 @@ class Project:
             return bool(result.stdout.strip())
         except Exception:
             return False
+    
+    def reinitialize_git(self) -> tuple[bool, str]:
+        """
+        Reinitialize git tracking for this project.
+        
+        Use this when .git folder was deleted but .ptc config still exists.
+        Creates a fresh git repo and saves the first version.
+        
+        Returns (success, message).
+        """
+        if self.has_git:
+            return False, "Git is already initialized."
+        
+        try:
+            # Initialize git
+            self._init_git()
+            
+            # Check if it worked
+            if not self.has_git:
+                return False, "Couldn't initialize git. Check folder permissions."
+            
+            # Save first version
+            self.save_version("Restored version tracking")
+            
+            return True, "Version tracking restored! Your current files are now saved as the first version."
+            
+        except Exception as e:
+            return False, f"Something went wrong: {e}"
     
     def save_config(self) -> None:
         """Save project configuration to .ptc/project.json."""
@@ -472,6 +537,79 @@ Thumbs.db
         except Exception:
             return []
     
+    def restore_to_version(self, commit_hash: str, original_message: str = "") -> tuple[bool, str]:
+        """
+        Restore the project to a previous version.
+        
+        This doesn't delete history - it creates a NEW commit that matches
+        the state of the old commit. You can always restore forward again.
+        
+        Args:
+            commit_hash: The git commit hash to restore to
+            original_message: The original commit message (for the new commit message)
+        
+        Returns (success, message).
+        """
+        if not (self.path / ".git").exists():
+            return False, "No version history found"
+        
+        # Check for unsaved changes
+        if self.has_unsaved_changes:
+            return False, "You have unsaved changes. Save a version first, then restore."
+        
+        try:
+            # First, verify the commit exists
+            result = subprocess.run(
+                ["git", "cat-file", "-t", commit_hash],
+                cwd=self.path,
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode != 0:
+                return False, "That version no longer exists"
+            
+            # Checkout all files from that commit (but stay on current branch)
+            # This overwrites working directory with the old version's files
+            result = subprocess.run(
+                ["git", "checkout", commit_hash, "--", "."],
+                cwd=self.path,
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode != 0:
+                return False, f"Couldn't restore files: {result.stderr.strip()}"
+            
+            # Now commit this as a new version
+            if original_message:
+                restore_message = f"Restored to: {original_message}"
+            else:
+                restore_message = f"Restored to version {commit_hash[:7]}"
+            
+            # Stage all the restored files
+            subprocess.run(
+                ["git", "add", "-A"],
+                cwd=self.path,
+                capture_output=True,
+                check=True
+            )
+            
+            # Commit the restoration
+            subprocess.run(
+                ["git", "commit", "-m", restore_message],
+                cwd=self.path,
+                capture_output=True,
+                check=True
+            )
+            
+            return True, f"Restored! Your files now match '{original_message or commit_hash[:7]}'"
+            
+        except subprocess.CalledProcessError as e:
+            return False, f"Restore failed: {e.stderr if e.stderr else str(e)}"
+        except Exception as e:
+            return False, f"Something went wrong: {e}"
+    
     def launch(self) -> subprocess.Popen:
         """Launch the main Python file."""
         return subprocess.Popen(
@@ -574,12 +712,21 @@ Thumbs.db
         
         try:
             # Fetch to get latest remote info (but don't merge)
-            subprocess.run(
-                ["git", "fetch", "origin"],
-                cwd=self.path,
-                capture_output=True,
-                timeout=30  # Don't hang forever
-            )
+            from core.github import run_git_with_auth, has_github_credentials
+            
+            if has_github_credentials():
+                run_git_with_auth(
+                    ["fetch", "origin"],
+                    cwd=self.path,
+                    timeout=30
+                )
+            else:
+                subprocess.run(
+                    ["git", "fetch", "origin"],
+                    cwd=self.path,
+                    capture_output=True,
+                    timeout=30  # Don't hang forever
+                )
             
             # Get current branch
             current_branch = self.get_current_branch()
@@ -639,7 +786,10 @@ Thumbs.db
         Push current branch to GitHub.
         
         Returns (success, message).
+        Special message "DIVERGED" indicates histories have diverged and user needs to choose.
         """
+        from core.github import run_git_with_auth, has_github_credentials
+        
         if not (self.path / ".git").exists():
             return False, "No git repository found"
         
@@ -650,13 +800,14 @@ Thumbs.db
         if not current_branch:
             return False, "Couldn't determine current branch"
         
+        if not has_github_credentials():
+            return False, "GitHub not connected. Go to Settings → GitHub to sign in."
+        
         try:
-            # Push with upstream tracking
-            result = subprocess.run(
-                ["git", "push", "-u", "origin", current_branch],
+            # Push with upstream tracking using authenticated git
+            result = run_git_with_auth(
+                ["push", "-u", "origin", current_branch],
                 cwd=self.path,
-                capture_output=True,
-                text=True,
                 timeout=60
             )
             
@@ -664,9 +815,10 @@ Thumbs.db
                 return True, "Pushed successfully!"
             else:
                 error = result.stderr.strip()
-                if "rejected" in error.lower():
-                    return False, "Push rejected - the remote has changes you don't have. Pull first."
-                elif "authentication" in error.lower() or "permission" in error.lower():
+                if "rejected" in error.lower() or "non-fast-forward" in error.lower():
+                    # Special return value to trigger conflict resolution dialog
+                    return False, "DIVERGED"
+                elif "authentication" in error.lower() or "permission" in error.lower() or "403" in error:
                     return False, "Authentication failed. Check your GitHub settings."
                 else:
                     return False, f"Push failed: {error}"
@@ -682,6 +834,8 @@ Thumbs.db
         
         Returns (success, message).
         """
+        from core.github import run_git_with_auth, has_github_credentials
+        
         if not (self.path / ".git").exists():
             return False, "No git repository found"
         
@@ -696,12 +850,13 @@ Thumbs.db
         if not current_branch:
             return False, "Couldn't determine current branch"
         
+        if not has_github_credentials():
+            return False, "GitHub not connected. Go to Settings → GitHub to sign in."
+        
         try:
-            result = subprocess.run(
-                ["git", "pull", "origin", current_branch],
+            result = run_git_with_auth(
+                ["pull", "origin", current_branch],
                 cwd=self.path,
-                capture_output=True,
-                text=True,
                 timeout=60
             )
             
@@ -715,13 +870,109 @@ Thumbs.db
                 error = result.stderr.strip()
                 if "conflict" in error.lower():
                     return False, "Merge conflict detected. This needs manual resolution."
-                elif "authentication" in error.lower():
+                elif "authentication" in error.lower() or "403" in error:
                     return False, "Authentication failed. Check your GitHub settings."
                 else:
                     return False, f"Pull failed: {error}"
                     
         except subprocess.TimeoutExpired:
             return False, "Pull timed out. Check your internet connection."
+        except Exception as e:
+            return False, f"Error: {e}"
+    
+    def force_push_to_github(self) -> tuple[bool, str]:
+        """
+        Force push current branch to GitHub, overwriting remote history.
+        
+        Use this when local is the "truth" and remote has garbage/old commits.
+        
+        Returns (success, message).
+        """
+        from core.github import run_git_with_auth, has_github_credentials
+        
+        if not (self.path / ".git").exists():
+            return False, "No git repository found"
+        
+        if not self.has_remote():
+            return False, "No GitHub remote configured."
+        
+        current_branch = self.get_current_branch()
+        if not current_branch:
+            return False, "Couldn't determine current branch"
+        
+        if not has_github_credentials():
+            return False, "GitHub not connected. Go to Settings → GitHub to sign in."
+        
+        try:
+            # Force push - this overwrites remote history
+            result = run_git_with_auth(
+                ["push", "--force", "-u", "origin", current_branch],
+                cwd=self.path,
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                return True, "Force pushed successfully! GitHub now matches your local version."
+            else:
+                error = result.stderr.strip()
+                if "authentication" in error.lower() or "permission" in error.lower() or "403" in error:
+                    return False, "Authentication failed. Check your GitHub settings."
+                else:
+                    return False, f"Force push failed: {error}"
+                    
+        except subprocess.TimeoutExpired:
+            return False, "Push timed out. Check your internet connection."
+        except Exception as e:
+            return False, f"Error: {e}"
+    
+    def reset_to_remote(self) -> tuple[bool, str]:
+        """
+        Reset local to match remote, discarding local commits.
+        
+        Use this when remote is the "truth" and local has garbage/old commits.
+        
+        Returns (success, message).
+        """
+        from core.github import run_git_with_auth, has_github_credentials
+        
+        if not (self.path / ".git").exists():
+            return False, "No git repository found"
+        
+        if not self.has_remote():
+            return False, "No GitHub remote configured."
+        
+        current_branch = self.get_current_branch()
+        if not current_branch:
+            return False, "Couldn't determine current branch"
+        
+        if not has_github_credentials():
+            return False, "GitHub not connected. Go to Settings → GitHub to sign in."
+        
+        try:
+            # First fetch to get latest remote state
+            run_git_with_auth(
+                ["fetch", "origin"],
+                cwd=self.path,
+                timeout=30
+            )
+            
+            # Hard reset to remote branch
+            result = subprocess.run(
+                ["git", "reset", "--hard", f"origin/{current_branch}"],
+                cwd=self.path,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                return True, "Reset successful! Your local files now match GitHub."
+            else:
+                error = result.stderr.strip()
+                return False, f"Reset failed: {error}"
+                    
+        except subprocess.TimeoutExpired:
+            return False, "Operation timed out. Check your internet connection."
         except Exception as e:
             return False, f"Error: {e}"
     
@@ -743,12 +994,21 @@ Thumbs.db
         
         try:
             # Fetch latest
-            subprocess.run(
-                ["git", "fetch", "origin"],
-                cwd=self.path,
-                capture_output=True,
-                timeout=30
-            )
+            from core.github import run_git_with_auth, has_github_credentials
+            
+            if has_github_credentials():
+                run_git_with_auth(
+                    ["fetch", "origin"],
+                    cwd=self.path,
+                    timeout=30
+                )
+            else:
+                subprocess.run(
+                    ["git", "fetch", "origin"],
+                    cwd=self.path,
+                    capture_output=True,
+                    timeout=30
+                )
             
             main_name = self.get_main_branch_name()
             

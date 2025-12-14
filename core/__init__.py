@@ -1,6 +1,6 @@
 """TPC core functionality."""
 
-__version__ = "0.86"
+__version__ = "0.97"
 
 from .project import Project, find_ptc_projects, DEFAULT_PROJECTS_ROOT
 from .deps import (
@@ -26,6 +26,15 @@ from .build import (
     BuildResult,
     BuildProgress,
 )
+from .github import (
+    has_github_credentials,
+    get_github_token,
+    get_github_username,
+    save_github_credentials,
+    clear_github_credentials,
+    validate_token,
+    clone_repository,
+)
 
 __all__ = [
     "Project", 
@@ -46,4 +55,11 @@ __all__ = [
     "BuildOrchestrator",
     "BuildResult",
     "BuildProgress",
+    "has_github_credentials",
+    "get_github_token",
+    "get_github_username",
+    "save_github_credentials",
+    "clear_github_credentials",
+    "validate_token",
+    "clone_repository",
 ]

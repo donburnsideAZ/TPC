@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QProcess
 from PyQt6.QtGui import QFont, QTextCursor
-import platform
+
 from core.project import Project
 
 
@@ -78,7 +78,7 @@ class WelcomeWidget(QWidget):
         layout.addStretch(2)
         
         hint = QLabel(
-            "💡 Got a script in Downloads? The Adopt button is your friend."
+            "Tip: Got a script in Downloads? The Adopt button is your friend."
         )
         hint.setObjectName("welcomeHint")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -246,6 +246,33 @@ class WorkspaceWidget(QWidget):
         self.branch_warning.hide()  # Hidden by default
         layout.addWidget(self.branch_warning)
         
+        # === GIT MISSING WARNING (hidden by default) ===
+        self.git_missing_warning = QWidget()
+        self.git_missing_warning.setObjectName("gitMissingWarning")
+        git_warning_layout = QHBoxLayout(self.git_missing_warning)
+        git_warning_layout.setContentsMargins(16, 12, 16, 12)
+        git_warning_layout.setSpacing(12)
+        
+        git_warning_icon = QLabel("⚠️")
+        git_warning_icon.setStyleSheet("font-size: 16px;")
+        git_warning_layout.addWidget(git_warning_icon)
+        
+        git_warning_text = QLabel(
+            "Version tracking was lost (the .git folder is missing). "
+            "Click Restore to start tracking again from your current files."
+        )
+        git_warning_text.setObjectName("gitMissingText")
+        git_warning_text.setWordWrap(True)
+        git_warning_layout.addWidget(git_warning_text, 1)
+        
+        self.btn_restore_git = QPushButton("Restore Tracking")
+        self.btn_restore_git.setObjectName("btnRestoreGit")
+        self.btn_restore_git.clicked.connect(self.on_restore_git)
+        git_warning_layout.addWidget(self.btn_restore_git)
+        
+        self.git_missing_warning.hide()  # Hidden by default
+        layout.addWidget(self.git_missing_warning)
+        
         # === CLAUDE BRANCHES WARNING (hidden by default) ===
         self.claude_branches_warning = QWidget()
         self.claude_branches_warning.setObjectName("claudeBranchesWarning")
@@ -309,7 +336,7 @@ class WorkspaceWidget(QWidget):
         self.btn_launch.clicked.connect(self.on_launch)
         actions_layout.addWidget(self.btn_launch)
         
-        self.btn_save = QPushButton("💾  Save Version")
+        self.btn_save = QPushButton("+  Save Version")
         self.btn_save.setObjectName("actionButtonSecondary")
         self.btn_save.clicked.connect(self.on_save_version)
         actions_layout.addWidget(self.btn_save)
@@ -463,6 +490,9 @@ class WorkspaceWidget(QWidget):
             self.btn_launch.setEnabled(True)
             self.btn_launch.setText("▶  Launch")
         
+        # Check for missing git (highest priority warning)
+        self.refresh_git_warning()
+        
         # Check for branch issues
         self.refresh_branch_warning()
         
@@ -502,7 +532,76 @@ class WorkspaceWidget(QWidget):
                 hash=version["hash"],
                 is_latest=(i == 0)
             )
+            # Connect restore signal
+            item.restore_requested.connect(self.on_restore_version)
             self.timeline_layout.insertWidget(self.timeline_layout.count() - 1, item)
+    
+    def on_restore_version(self, commit_hash: str, message: str):
+        """Handle request to restore to a previous version."""
+        if not self.project:
+            return
+        
+        from PyQt6.QtWidgets import QMessageBox
+        
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Restore to Previous Version?",
+            f"This will restore your files to:\n\n\"{message}\"\n\n"
+            "Your current files will be replaced, but nothing is deleted - "
+            "a new version will be created and you can always restore forward again.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        # Do the restore
+        success, result_message = self.project.restore_to_version(commit_hash, message)
+        
+        if success:
+            QMessageBox.information(self, "Restored!", result_message)
+            self.refresh_ui()
+            self.project_changed.emit()
+        else:
+            QMessageBox.warning(self, "Restore Failed", result_message)
+    
+    def refresh_git_warning(self):
+        """Check if git is missing and show warning if so."""
+        if not self.project:
+            self.git_missing_warning.hide()
+            return
+        
+        if self.project.has_git:
+            self.git_missing_warning.hide()
+        else:
+            self.git_missing_warning.show()
+    
+    def on_restore_git(self):
+        """Handle restoring git tracking for a project."""
+        if not self.project:
+            return
+        
+        from PyQt6.QtWidgets import QMessageBox
+        
+        # Disable button during operation
+        self.btn_restore_git.setEnabled(False)
+        self.btn_restore_git.setText("Restoring...")
+        
+        success, message = self.project.reinitialize_git()
+        
+        # Re-enable button
+        self.btn_restore_git.setText("Restore Tracking")
+        self.btn_restore_git.setEnabled(True)
+        
+        if success:
+            QMessageBox.information(self, "Tracking Restored!", message)
+            self.refresh_ui()
+            self.project_changed.emit()
+        else:
+            QMessageBox.warning(self, "Restore Failed", message)
     
     def refresh_branch_warning(self):
         """Check if we're on a non-main branch and show warning if so."""
@@ -732,8 +831,7 @@ class WorkspaceWidget(QWidget):
         self.running_processes[project_key] = process
         
         # Start the process
-        python_cmd = "python" if platform.system() == "Windows" else "python3"
-        process.start(python_cmd, [self.project.main_file])
+        process.start("python3", [self.project.main_file])
     
     def on_stdout_ready(self, process: QProcess):
         """Handle stdout data from the running process."""
@@ -911,12 +1009,16 @@ class WorkspaceWidget(QWidget):
         if not self.project:
             return
         
-        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
         
         # Disable buttons during operation
         self.btn_push.setEnabled(False)
         self.btn_pull.setEnabled(False)
         self.btn_push.setText("Pushing...")
+        
+        # Force UI update
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
         
         # Do the push
         success, message = self.project.push_to_github()
@@ -929,8 +1031,174 @@ class WorkspaceWidget(QWidget):
         if success:
             QMessageBox.information(self, "Pushed!", message)
             self.refresh_github_status()
+        elif message == "DIVERGED":
+            # Show conflict resolution dialog
+            self.show_diverged_dialog()
         else:
             QMessageBox.warning(self, "Push Failed", message)
+    
+    def show_diverged_dialog(self):
+        """Show dialog for resolving diverged histories."""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QMessageBox
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Histories Have Diverged")
+        dialog.setModal(True)
+        dialog.setMinimumWidth(450)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+        
+        # Explanation
+        header = QLabel("Your local and GitHub have different histories")
+        header.setStyleSheet("font-size: 16px; font-weight: 600; color: #333;")
+        layout.addWidget(header)
+        
+        explanation = QLabel(
+            "This usually happens when:\n"
+            "• Another tool (like Claude Code) made commits on GitHub\n"
+            "• You worked on this project from another computer\n"
+            "• Something got out of sync\n\n"
+            "Which version is correct?"
+        )
+        explanation.setWordWrap(True)
+        explanation.setStyleSheet("color: #666; font-size: 13px;")
+        layout.addWidget(explanation)
+        
+        layout.addSpacing(8)
+        
+        # Option 1: Use local (force push)
+        local_btn = QPushButton("Use my local version")
+        local_btn.setToolTip("Overwrites GitHub with your local files")
+        local_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4a9eff;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 500;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #5aafff;
+            }
+        """)
+        local_btn.clicked.connect(lambda: self.resolve_diverged(dialog, "local"))
+        layout.addWidget(local_btn)
+        
+        local_hint = QLabel("GitHub will be overwritten with what you have here")
+        local_hint.setStyleSheet("color: #888; font-size: 12px; margin-left: 8px;")
+        layout.addWidget(local_hint)
+        
+        layout.addSpacing(4)
+        
+        # Option 2: Use remote (reset to GitHub)
+        remote_btn = QPushButton("Use GitHub's version")
+        remote_btn.setToolTip("Overwrites your local files with what's on GitHub")
+        remote_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 500;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        remote_btn.clicked.connect(lambda: self.resolve_diverged(dialog, "remote"))
+        layout.addWidget(remote_btn)
+        
+        remote_hint = QLabel("Your local files will be replaced with GitHub's version")
+        remote_hint.setStyleSheet("color: #888; font-size: 12px; margin-left: 8px;")
+        layout.addWidget(remote_hint)
+        
+        layout.addSpacing(12)
+        
+        # Cancel
+        cancel_btn = QPushButton("Cancel - I'll figure this out later")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #666;
+                border: 1px solid #ccc;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #f0f0f0;
+            }
+        """)
+        cancel_btn.clicked.connect(dialog.reject)
+        layout.addWidget(cancel_btn)
+        
+        dialog.exec()
+    
+    def resolve_diverged(self, dialog, choice: str):
+        """Handle the user's choice for diverged histories."""
+        from PyQt6.QtWidgets import QMessageBox, QApplication
+        
+        dialog.accept()
+        
+        if choice == "local":
+            # Force push
+            self.btn_push.setEnabled(False)
+            self.btn_pull.setEnabled(False)
+            self.btn_push.setText("Force pushing...")
+            QApplication.processEvents()
+            
+            success, message = self.project.force_push_to_github()
+            
+            self.btn_push.setText("⬆ Push")
+            self.btn_push.setEnabled(True)
+            self.btn_pull.setEnabled(True)
+            
+            if success:
+                QMessageBox.information(self, "Done!", message)
+                self.refresh_github_status()
+            else:
+                QMessageBox.warning(self, "Force Push Failed", message)
+                
+        elif choice == "remote":
+            # Confirm this destructive action
+            reply = QMessageBox.warning(
+                self,
+                "Are you sure?",
+                "This will replace ALL your local files with GitHub's version.\n\n"
+                "Any local changes will be lost.\n\n"
+                "Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            
+            self.btn_push.setEnabled(False)
+            self.btn_pull.setEnabled(False)
+            self.btn_pull.setText("Resetting...")
+            QApplication.processEvents()
+            
+            success, message = self.project.reset_to_remote()
+            
+            self.btn_pull.setText("⬇ Pull")
+            self.btn_push.setEnabled(True)
+            self.btn_pull.setEnabled(True)
+            
+            if success:
+                QMessageBox.information(self, "Done!", message)
+                self.refresh_ui()
+                self.project_changed.emit()
+            else:
+                QMessageBox.warning(self, "Reset Failed", message)
     
     def on_pull(self):
         """Pull from GitHub."""
@@ -1143,6 +1411,35 @@ class WorkspaceWidget(QWidget):
                 background-color: #d39e00;
             }
             
+            #gitMissingWarning {
+                background-color: #fdecea;
+                border: 1px solid #e74c3c;
+                border-radius: 8px;
+            }
+            
+            #gitMissingText {
+                color: #922820;
+                font-size: 13px;
+            }
+            
+            #btnRestoreGit {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            
+            #btnRestoreGit:hover {
+                background-color: #c0392b;
+            }
+            
+            #btnRestoreGit:pressed {
+                background-color: #a93226;
+            }
+            
             #claudeBranchesWarning {
                 background-color: #e8f4fd;
                 border: 1px solid #4a9eff;
@@ -1331,11 +1628,20 @@ class WorkspaceWidget(QWidget):
 class VersionItem(QFrame):
     """A single version in the timeline."""
     
+    # Signal emitted when user wants to restore to this version
+    restore_requested = pyqtSignal(str, str)  # hash, message
+    
     def __init__(self, message: str, date: str, hash: str, is_latest: bool = False):
         super().__init__()
         self.hash = hash
+        self.message = message
+        self.is_latest = is_latest
         
         self.setObjectName("versionItem")
+        
+        # Enable context menu
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -1439,3 +1745,37 @@ class VersionItem(QFrame):
                     font-family: monospace;
                 }
             """)
+    
+    def show_context_menu(self, position):
+        """Show context menu for this version."""
+        from PyQt6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #ffffff;
+                border: 1px solid #cccccc;
+                border-radius: 6px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 8px 16px;
+                color: #333333;
+            }
+            QMenu::item:selected {
+                background-color: #e8e8e8;
+                color: #000000;
+            }
+        """)
+        
+        if self.is_latest:
+            # Can't restore to current version
+            action = menu.addAction("This is the current version")
+            action.setEnabled(False)
+        else:
+            restore_action = menu.addAction("Restore to this version")
+            restore_action.triggered.connect(
+                lambda: self.restore_requested.emit(self.hash, self.message)
+            )
+        
+        menu.exec(self.mapToGlobal(position))

@@ -273,7 +273,7 @@ class PackWorkspace(QWidget):
         deps_actions_layout.setContentsMargins(0, 8, 0, 0)
         deps_actions_layout.setSpacing(12)
         
-        self.btn_save_reqs = QPushButton("💾 Save requirements.txt")
+        self.btn_save_reqs = QPushButton("Save requirements.txt")
         self.btn_save_reqs.setObjectName("secondaryButton")
         self.btn_save_reqs.clicked.connect(self.on_save_requirements)
         deps_actions_layout.addWidget(self.btn_save_reqs)
@@ -340,7 +340,7 @@ class PackWorkspace(QWidget):
         self.btn_rebuild_env.clicked.connect(self.on_rebuild_environment)
         env_actions_layout.addWidget(self.btn_rebuild_env)
         
-        self.btn_delete_env = QPushButton("🗑️ Delete Environment")
+        self.btn_delete_env = QPushButton("Delete Environment")
         self.btn_delete_env.setObjectName("secondaryButtonDanger")
         self.btn_delete_env.clicked.connect(self.on_delete_environment)
         env_actions_layout.addWidget(self.btn_delete_env)
@@ -501,7 +501,7 @@ class PackWorkspace(QWidget):
         self.build_result_label.setWordWrap(True)
         build_result_layout.addWidget(self.build_result_label, 1)
         
-        self.btn_open_build_folder = QPushButton("📂 Open Build Folder")
+        self.btn_open_build_folder = QPushButton("Open Build Folder")
         self.btn_open_build_folder.setObjectName("btnSmall")
         self.btn_open_build_folder.clicked.connect(self.on_open_build_folder)
         build_result_layout.addWidget(self.btn_open_build_folder)
