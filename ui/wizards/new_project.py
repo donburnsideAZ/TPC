@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from core.project import Project, DEFAULT_PROJECTS_ROOT
+from core import Project, DEFAULT_PROJECTS_ROOT
 
 
 class NewProjectWizard(QDialog):

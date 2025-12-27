@@ -1,8 +1,8 @@
-"""TPC core functionality."""
+"""TPC core functionality - v3.0 with simple snapshot versioning."""
 
 import sys
 
-__version__ = "2.1.0"
+__version__ = "3.0.0"
 
 
 def subprocess_args() -> dict:
@@ -10,19 +10,16 @@ def subprocess_args() -> dict:
     Get platform-specific subprocess arguments.
     
     On Windows, this prevents console windows from popping up
-    when running git/python commands from a frozen PyInstaller executable.
-    
-    Usage:
-        subprocess.run(["git", "status"], **subprocess_args())
+    when running commands from a frozen PyInstaller executable.
     """
     kwargs = {}
     if sys.platform == "win32":
-        # CREATE_NO_WINDOW = 0x08000000
         kwargs["creationflags"] = 0x08000000
     return kwargs
 
 
-from .project import (
+# Project management
+from .project_v3 import (
     Project, 
     find_tpc_projects, 
     DEFAULT_PROJECTS_ROOT,
@@ -32,25 +29,23 @@ from .project import (
     get_config_dir,
     cleanup_stale_projects,
     get_orphan_folders,
+    register_project_path,
+    unregister_project_path,
+    get_known_project_paths,
 )
-from .config import (
-    TPCConfig,
-    get_config,
-    save_config,
-    is_first_run,
-    complete_first_run,
-    get_projects_root,
-    update_projects_location,
+
+# Snapshot versioning (new in v3)
+from .snapshots import (
+    SnapshotManager,
+    Snapshot,
+    SnapshotResult,
+    create_project_snapshot,
+    list_project_snapshots,
+    restore_project_snapshot,
+    DEFAULT_IGNORE_PATTERNS,
 )
-from .cloud import (
-    CloudFolder,
-    detect_cloud_folders,
-    get_available_cloud_folders,
-    get_local_folder,
-    get_default_projects_location,
-    ensure_projects_folder,
-    identify_cloud_service,
-)
+
+# Dependency scanning
 from .deps import (
     DependencyDetective, 
     ScanResult, 
@@ -58,22 +53,30 @@ from .deps import (
     compare_requirements,
     RequirementsComparison,
 )
+
+# Virtual environment management
 from .venv import (
     EnvironmentWrangler,
     VenvResult,
     InstallProgress,
     TPC_VENVS_DIR,
 )
+
+# Icon conversion
 from .icons import (
     IconAlchemist,
     IconResult,
     ImageInfo,
 )
+
+# Build/packaging
 from .build import (
     BuildOrchestrator,
     BuildResult,
     BuildProgress,
 )
+
+# GitHub integration (simplified for backup only)
 from .github import (
     has_github_credentials,
     get_github_token,
@@ -85,9 +88,21 @@ from .github import (
     fetch_user_repos,
 )
 
+# Backup to GitHub (one-way push)
+from .backup import (
+    backup_to_github,
+    BackupResult,
+    is_git_installed,
+    has_git_repo,
+    get_backup_status,
+)
+
 __all__ = [
+    # Version
+    "__version__",
     "subprocess_args",
-    # Project management
+    
+    # Project
     "Project", 
     "find_tpc_projects", 
     "DEFAULT_PROJECTS_ROOT",
@@ -97,41 +112,42 @@ __all__ = [
     "get_config_dir",
     "cleanup_stale_projects",
     "get_orphan_folders",
-    # Config (TPC 2.0)
-    "TPCConfig",
-    "get_config",
-    "save_config",
-    "is_first_run",
-    "complete_first_run",
-    "get_projects_root",
-    "update_projects_location",
-    # Cloud detection (TPC 2.0)
-    "CloudFolder",
-    "detect_cloud_folders",
-    "get_available_cloud_folders",
-    "get_local_folder",
-    "get_default_projects_location",
-    "ensure_projects_folder",
-    "identify_cloud_service",
+    "register_project_path",
+    "unregister_project_path",
+    "get_known_project_paths",
+    
+    # Snapshots
+    "SnapshotManager",
+    "Snapshot",
+    "SnapshotResult",
+    "create_project_snapshot",
+    "list_project_snapshots",
+    "restore_project_snapshot",
+    "DEFAULT_IGNORE_PATTERNS",
+    
     # Dependencies
     "DependencyDetective",
     "ScanResult", 
     "generate_requirements",
     "compare_requirements",
     "RequirementsComparison",
-    # Virtual environments
+    
+    # Venv
     "EnvironmentWrangler",
     "VenvResult",
     "InstallProgress",
     "TPC_VENVS_DIR",
+    
     # Icons
     "IconAlchemist",
     "IconResult",
     "ImageInfo",
+    
     # Build
     "BuildOrchestrator",
     "BuildResult",
     "BuildProgress",
+    
     # GitHub
     "has_github_credentials",
     "get_github_token",
@@ -141,4 +157,11 @@ __all__ = [
     "validate_token",
     "clone_repository",
     "fetch_user_repos",
+    
+    # Backup
+    "backup_to_github",
+    "BackupResult",
+    "is_git_installed",
+    "has_git_repo",
+    "get_backup_status",
 ]

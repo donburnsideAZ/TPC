@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
-from core.project import Project, DEFAULT_PROJECTS_ROOT, register_project_path
+from core import Project, DEFAULT_PROJECTS_ROOT, register_project_path
 from core.github import (
     has_github_credentials,
     get_github_username,

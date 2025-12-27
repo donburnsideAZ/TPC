@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from core.project import Project, DEFAULT_PROJECTS_ROOT
+from core import Project, DEFAULT_PROJECTS_ROOT, register_project_path
 
 
 def find_python_files(folder: Path) -> list[str]:
