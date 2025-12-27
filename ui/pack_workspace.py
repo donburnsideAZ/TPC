@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from PyQt6.QtGui import QFont, QPixmap
 
-from core.project import Project
+from core import Project
 from core.deps import DependencyDetective, ScanResult, generate_requirements, compare_requirements
 from core.venv import EnvironmentWrangler, VenvResult, InstallProgress
 from core.icons import IconAlchemist, ImageInfo

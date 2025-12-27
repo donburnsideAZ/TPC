@@ -30,11 +30,11 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QScreen, QGuiApplication, QAction
 
 from core import __version__
-from core.project import Project, find_tpc_projects, DEFAULT_PROJECTS_ROOT, remove_from_tpc
+from core import Project, find_tpc_projects, DEFAULT_PROJECTS_ROOT, remove_from_tpc
 from ui.wizards.new_project import NewProjectWizard
 from ui.wizards.import_project import ImportProjectWizard
 from ui.wizards.clone_github import CloneFromGitHubWizard
-from ui.workspace import WorkspaceWidget, WelcomeWidget
+from ui.workspace_v3 import WorkspaceWidget, WelcomeWidget
 from ui.pack_workspace import PackWorkspace
 from ui.settings_dialog import SettingsDialog
 
