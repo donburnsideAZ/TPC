@@ -110,10 +110,15 @@ DATAS_PATTERNS = {
 # These have assets that PyInstaller doesn't find automatically
 COLLECT_ALL_PACKAGES = [
     'whisper',         # mel_filters.npz and other model assets
-    'tkinterdnd2',     # native tkdnd library files
     'openai_whisper',  # alternate whisper package name
+    'torch',           # PyTorch native libraries (CRITICAL for whisper/ML apps)
+    'torchaudio',      # Audio processing for torch
+    'torchvision',     # Vision processing for torch (if used)
+    'tkinterdnd2',     # native tkdnd library files
     'customtkinter',   # themes, images, and widget assets
     'CTkMessagebox',   # customtkinter extension with assets
+    'numpy',           # Sometimes needs collect-all for full functionality
+    'scipy',           # Scientific computing with native libs
 ]
 
 # macOS framework imports that look like packages but aren't pip-installable

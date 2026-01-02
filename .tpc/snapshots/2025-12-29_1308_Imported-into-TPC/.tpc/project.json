@@ -1,0 +1,13 @@
+{
+  "name": "tpc OSX",
+  "main_file": "main.py",
+  "description": "Imported from tpc OSX",
+  "python_version": "3.12",
+  "created": "2025-12-29T13:08:05.754094",
+  "github_repo": null,
+  "icon_path": null,
+  "snapshot_limit": 10,
+  "ignore_patterns": [],
+  "project_type": "python",
+  "launch_command": null
+}

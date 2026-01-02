@@ -1,8 +1,0 @@
-{
-  "name": "tpc",
-  "main_file": "main.py",
-  "description": "Imported from tpc",
-  "python_version": "3.11",
-  "created": "2025-12-24T04:09:35.196950",
-  "github_repo": "https://github.com/donburnsideAZ/TPC.git"
-}
