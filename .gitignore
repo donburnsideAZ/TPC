@@ -9,9 +9,11 @@ venv/
 ENV/
 
 # TPC build outputs
+TPC Build/
 dist/
 build/
 *.spec
+
 
 # IDE
 .idea/
